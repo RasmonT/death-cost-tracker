@@ -53,6 +53,18 @@ class CostData
 	List<Payment> history;
 	/** Everything paid per day (yyyy-MM-dd -> coins), kept forever; only days with costs. */
 	Map<String, Long> days;
+	Deaths deaths;
+	/** Deaths per day (yyyy-MM-dd -> count), kept forever; only days with deaths. */
+	Map<String, Long> deathDays;
+
+	static class Deaths
+	{
+		/** Since login. */
+		long session;
+		/** Since the death counter was last reset. */
+		long total;
+		String since;
+	}
 
 	static class Total
 	{
@@ -159,6 +171,16 @@ class CostData
 		history.removeIf(p -> p == null);
 		days = days == null ? new TreeMap<>() : new TreeMap<>(days);
 		days.values().removeIf(v -> v == null);
+		if (deaths == null)
+		{
+			deaths = new Deaths();
+		}
+		if (deaths.since == null)
+		{
+			deaths.since = now;
+		}
+		deathDays = deathDays == null ? new TreeMap<>() : new TreeMap<>(deathDays);
+		deathDays.values().removeIf(v -> v == null);
 		return this;
 	}
 
@@ -174,10 +196,24 @@ class CostData
 		return true;
 	}
 
+	/** A new login: both session counters start over. */
 	void startSession()
+	{
+		resetSessionCost();
+		deaths.session = 0;
+	}
+
+	void resetSessionCost()
 	{
 		session.start = now();
 		session.coins = 0;
+	}
+
+	void addDeath()
+	{
+		deaths.session++;
+		deaths.total++;
+		deathDays.merge(today.date, 1L, Long::sum);
 	}
 
 	void addPayment(long coins, long bank, String source, String kind)

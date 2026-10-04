@@ -74,10 +74,16 @@ class DeathCostPanel extends PluginPanel
 	private final JLabel totalLabel = new JLabel(" ", SwingConstants.CENTER);
 	private final JLabel infoLabel = new JLabel(" ", SwingConstants.CENTER);
 	private final JPanel dayList = new JPanel(new GridLayout(0, 1, 0, 2));
+	private final JPanel deathSection = new JPanel(new BorderLayout(0, 6));
+	private final JLabel deathTotalLabel = new JLabel(" ", SwingConstants.CENTER);
+	private final JLabel deathInfoLabel = new JLabel(" ", SwingConstants.CENTER);
+	private final JPanel deathList = new JPanel(new GridLayout(0, 1, 0, 2));
 	private final List<QuickRange> quickRanges = new ArrayList<>();
 
 	/** Copy of the logged-in character's per-day costs; empty while logged out. */
 	private NavigableMap<String, Long> days = new TreeMap<>();
+	/** Copy of the per-day death counts. */
+	private NavigableMap<String, Long> deathDays = new TreeMap<>();
 	private boolean loggedIn;
 
 	@Inject
@@ -112,7 +118,15 @@ class DeathCostPanel extends PluginPanel
 		add(top, BorderLayout.NORTH);
 
 		dayList.setBackground(BACKGROUND);
-		add(dayList, BorderLayout.CENTER);
+		deathList.setBackground(BACKGROUND);
+		deathSection.setBackground(BACKGROUND);
+		deathSection.add(card("Deaths", deathTotalLabel, deathInfoLabel), BorderLayout.NORTH);
+		deathSection.add(deathList, BorderLayout.CENTER);
+
+		JPanel lists = panel(new BorderLayout(0, 10));
+		lists.add(dayList, BorderLayout.NORTH);
+		lists.add(deathSection, BorderLayout.CENTER);
+		add(lists, BorderLayout.CENTER);
 
 		JLabel note = new JLabel("<html><div style='width:170px'>Enter a date and press Enter. Resetting the overlay counters"
 			+ " does not change this history.</div></html>");
@@ -156,21 +170,26 @@ class DeathCostPanel extends PluginPanel
 
 	private JPanel totalCard()
 	{
+		return card("Paid to Death", totalLabel, infoLabel);
+	}
+
+	private static JPanel card(String captionText, JLabel total, JLabel info)
+	{
 		JPanel card = new JPanel(new GridLayout(0, 1, 0, 2));
 		card.setBackground(CARD);
 		card.setBorder(new EmptyBorder(8, 8, 8, 8));
 
-		JLabel caption = new JLabel("Paid to Death", SwingConstants.CENTER);
+		JLabel caption = new JLabel(captionText, SwingConstants.CENTER);
 		caption.setFont(FontManager.getRunescapeSmallFont());
 		caption.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		card.add(caption);
 
-		totalLabel.setFont(FontManager.getRunescapeBoldFont());
-		totalLabel.setForeground(Color.WHITE);
-		card.add(totalLabel);
+		total.setFont(FontManager.getRunescapeBoldFont());
+		total.setForeground(Color.WHITE);
+		card.add(total);
 
-		infoLabel.setFont(FontManager.getRunescapeSmallFont());
-		card.add(infoLabel);
+		info.setFont(FontManager.getRunescapeSmallFont());
+		card.add(info);
 		return card;
 	}
 
@@ -254,9 +273,10 @@ class DeathCostPanel extends PluginPanel
 	}
 
 	/** Called by the plugin, on the Swing thread, with a fresh copy after every change. */
-	void setDays(Map<String, Long> newDays, boolean loggedIn)
+	void setDays(Map<String, Long> newDays, Map<String, Long> newDeathDays, boolean loggedIn)
 	{
 		this.days = new TreeMap<>(newDays);
+		this.deathDays = new TreeMap<>(newDeathDays);
 		this.loggedIn = loggedIn;
 		refresh();
 	}
@@ -264,6 +284,10 @@ class DeathCostPanel extends PluginPanel
 	void refresh()
 	{
 		dayList.removeAll();
+		deathList.removeAll();
+		deathSection.setVisible(config.showDeathHistory());
+		deathTotalLabel.setText("-");
+		deathInfoLabel.setText(" ");
 		if (!loggedIn)
 		{
 			show("-", "Log in to see this character's history", ColorScheme.LIGHT_GRAY_COLOR);
@@ -302,6 +326,21 @@ class DeathCostPanel extends PluginPanel
 			count == 0 ? "No death costs in this range" : count + (count == 1 ? " day" : " days") + " with costs",
 			ColorScheme.LIGHT_GRAY_COLOR);
 		totalLabel.setToolTipText(CoinFormat.EXACT.format(sum) + " coins");
+
+		NavigableMap<String, Long> deathRange = deathDays.subMap(from.toString(), true, to.toString(), true);
+		long deaths = 0;
+		for (Map.Entry<String, Long> day : deathRange.descendingMap().entrySet())
+		{
+			deaths += day.getValue();
+			deathList.add(dayRow(day.getKey(), day.getValue() + (day.getValue() == 1 ? " death" : " deaths")));
+		}
+		int deathDayCount = deathRange.size();
+		deathTotalLabel.setText(deaths + (deaths == 1 ? " death" : " deaths"));
+		deathInfoLabel.setText(deathDayCount == 0 ? "No deaths in this range"
+			: deathDayCount + (deathDayCount == 1 ? " day" : " days") + " with deaths");
+		deathInfoLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		deathList.revalidate();
+		deathList.repaint();
 	}
 
 	private void show(String total, String info, Color infoColor)

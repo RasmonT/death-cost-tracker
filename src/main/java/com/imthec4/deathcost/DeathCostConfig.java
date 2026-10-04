@@ -43,9 +43,16 @@ public interface DeathCostConfig extends Config
 	String DISPLAY = "display";
 
 	@ConfigSection(
+		name = "Deaths",
+		description = "Death counter: a separate overlay and a table in the side panel",
+		position = 1
+	)
+	String DEATHS = "deaths";
+
+	@ConfigSection(
 		name = "Counting",
 		description = "How costs are counted",
-		position = 1
+		position = 2
 	)
 	String COUNTING = "counting";
 
@@ -146,6 +153,32 @@ public interface DeathCostConfig extends Config
 	default boolean hideWhenZero()
 	{
 		return false;
+	}
+
+	// ------------------------------------------------------------------ deaths
+
+	@ConfigItem(
+		keyName = "showDeathOverlay",
+		name = "Show deaths overlay",
+		description = "A separate box with deaths this session and all deaths",
+		section = DEATHS,
+		position = 0
+	)
+	default boolean showDeathOverlay()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showDeathHistory",
+		name = "Deaths in side panel",
+		description = "A table of deaths per day for the chosen date range in the side panel",
+		section = DEATHS,
+		position = 1
+	)
+	default boolean showDeathHistory()
+	{
+		return true;
 	}
 
 	// ------------------------------------------------------------------ counting

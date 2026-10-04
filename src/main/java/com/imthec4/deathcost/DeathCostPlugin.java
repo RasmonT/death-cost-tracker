@@ -120,6 +120,9 @@ public class DeathCostPlugin extends Plugin
 	private static final Pattern COFFER_LEFT = Pattern.compile("You have ([\\d,]+) x Coins left in Death's Coffer");
 	private static final String COFFER_EMPTY = "You have nothing left in Death's Coffer";
 
+	/** Sent once per death, for every kind of death seen in the captures. */
+	private static final String YOU_DIED = "Oh dear, you are dead!";
+
 	/**
 	 * The part of a reclaim fee the bank paid. Graves and boss NPCs say "180,096 x Coins",
 	 * Death's Office says "5,964 coins".
@@ -166,6 +169,9 @@ public class DeathCostPlugin extends Plugin
 
 	@Inject
 	private DeathCostOverlay overlay;
+
+	@Inject
+	private DeathCountOverlay deathOverlay;
 
 	@Inject
 	private CostStore store;
@@ -221,6 +227,7 @@ public class DeathCostPlugin extends Plugin
 	{
 		store.start(this::getPluginDirectory);
 		overlayManager.add(overlay);
+		overlayManager.add(deathOverlay);
 		navButton = NavigationButton.builder()
 			.tooltip("Death Cost Tracker")
 			.icon(ImageUtil.loadImageResource(getClass(), "panel_icon.png"))
@@ -242,6 +249,7 @@ public class DeathCostPlugin extends Plugin
 	protected void shutDown()
 	{
 		overlayManager.remove(overlay);
+		overlayManager.remove(deathOverlay);
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
@@ -339,13 +347,14 @@ public class DeathCostPlugin extends Plugin
 		}
 	}
 
-	/** Hands the side panel a copy of the per-day record (the panel lives on the Swing thread). */
+	/** Hands the side panel copies of the per-day records (the panel lives on the Swing thread). */
 	private void publishDays()
 	{
 		CostData d = data;
-		Map<String, Long> copy = d != null ? new TreeMap<>(d.days) : new TreeMap<>();
+		Map<String, Long> costs = d != null ? new TreeMap<>(d.days) : new TreeMap<>();
+		Map<String, Long> deaths = d != null ? new TreeMap<>(d.deathDays) : new TreeMap<>();
 		boolean loggedIn = d != null;
-		SwingUtilities.invokeLater(() -> panel.setDays(copy, loggedIn));
+		SwingUtilities.invokeLater(() -> panel.setDays(costs, deaths, loggedIn));
 	}
 
 	@Subscribe
@@ -393,6 +402,16 @@ public class DeathCostPlugin extends Plugin
 			return;
 		}
 		String message = Text.removeTags(event.getMessage());
+
+		if (YOU_DIED.equals(message))
+		{
+			change(d ->
+			{
+				d.rollDay(config.dayBoundary().today());
+				d.addDeath();
+			});
+			return;
+		}
 
 		Matcher fee = DEATH_FEE.matcher(message);
 		if (fee.matches())
@@ -778,13 +797,17 @@ public class DeathCostPlugin extends Plugin
 	@RequiredArgsConstructor
 	enum Counter
 	{
-		SESSION("Session", "session"),
-		TODAY("Today", "today"),
-		TOTAL("Total", "total"),
-		SAVINGS("Coffer savings", "coffer savings");
+		SESSION("Session", "session", false),
+		TODAY("Today", "today", false),
+		TOTAL("Total", "total", false),
+		SAVINGS("Coffer savings", "coffer savings", false),
+		SESSION_DEATHS("Session deaths", "session deaths", true),
+		ALL_DEATHS("All deaths", "all deaths", true);
 
 		private final String menuTarget;
 		private final String spoken;
+		/** A death count rather than coins; lives on the deaths overlay. */
+		private final boolean deaths;
 	}
 
 	/** Asks for confirmation on the Swing thread, then resets on the client thread. */
@@ -795,7 +818,8 @@ public class DeathCostPlugin extends Plugin
 		{
 			return;
 		}
-		String value = config.coinFormat().format(value(counter));
+		long raw = value(counter);
+		String value = counter.isDeaths() ? String.valueOf(raw) : config.coinFormat().format(raw);
 		SwingUtilities.invokeLater(() ->
 		{
 			int answer = JOptionPane.showConfirmDialog(client.getCanvas(),
@@ -823,6 +847,10 @@ public class DeathCostPlugin extends Plugin
 				return d.today.coins;
 			case TOTAL:
 				return d.total.coins;
+			case SESSION_DEATHS:
+				return d.deaths.session;
+			case ALL_DEATHS:
+				return d.deaths.total;
 			default:
 				return savings();
 		}
@@ -838,7 +866,7 @@ public class DeathCostPlugin extends Plugin
 		switch (counter)
 		{
 			case SESSION:
-				d.startSession();
+				d.resetSessionCost();
 				break;
 			case TODAY:
 				d.today.coins = 0;
@@ -850,6 +878,13 @@ public class DeathCostPlugin extends Plugin
 			case SAVINGS:
 				d.savings.items.clear();
 				d.savings.since = CostData.now();
+				break;
+			case SESSION_DEATHS:
+				d.deaths.session = 0;
+				break;
+			case ALL_DEATHS:
+				d.deaths.total = 0;
+				d.deaths.since = CostData.now();
 				break;
 		}
 		save();

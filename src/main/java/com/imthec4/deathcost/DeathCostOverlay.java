@@ -73,6 +73,10 @@ class DeathCostOverlay extends OverlayPanel
 
 		for (DeathCostPlugin.Counter counter : DeathCostPlugin.Counter.values())
 		{
+			if (counter.isDeaths())
+			{
+				continue; // those belong to the deaths overlay
+			}
 			addMenuEntry(MenuAction.RUNELITE_OVERLAY, "Reset", counter.getMenuTarget(), e -> plugin.confirmReset(counter));
 		}
 	}
