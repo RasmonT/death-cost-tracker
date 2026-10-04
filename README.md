@@ -8,7 +8,7 @@ sacrificed items back on the Grand Exchange.
 character gets one file:
 
 ```
-%USERPROFILE%\.runelite\death-cost-tracker\<account hash>.json
+%USERPROFILE%\.runelite\plugin-data\death-cost-tracker\<account hash>.json
 ```
 
 The file is named after RuneLite's account hash, not your display name, and holds no name,
