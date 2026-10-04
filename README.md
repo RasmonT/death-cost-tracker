@@ -37,6 +37,14 @@ panel (the gravestone icon in RuneLite's sidebar) lets you pick a range with *Fr
 or with one click for the last 7 days, 30 days, this month or everything. It shows the total
 for that range plus each day that had costs. Resetting the overlay counters does not change it.
 
+## Deaths
+
+A separate overlay counts your deaths: this session and all deaths. It has its own position
+(Alt-drag) and can be turned off in the settings. Right-click it to reset either count; all
+deaths have their own reset, independent of the cost counters. Deaths are also kept per day,
+so the side panel shows a second table with the deaths in the chosen date range (this table
+can be turned off as well).
+
 ## What is counted
 
 Every reclaim fee, read from the game's own messages:
@@ -52,6 +60,7 @@ Every reclaim fee, read from the game's own messages:
 Bank payments are only counted while a reclaim interface is open, so Grand Exchange purchases
 paid from the bank never show up as death costs.
 
-**Private boss instances** paid from the coffer are not a death cost, so they are not counted
-by default. Turn on *Count private instances* in the settings to add them to the counters.
+**Private boss instances** are not a death cost, so they are not counted by default. Turn on
+*Count private instances* in the settings to add them to the counters, whether the coffer, the
+bank or both paid for them.
 Either way the *Coffer* line goes down when an instance is paid from it.
