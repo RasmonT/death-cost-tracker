@@ -108,6 +108,7 @@ import net.runelite.client.util.Text;
  */
 @Slf4j
 @PluginDescriptor(
+	internalName = "death-cost-tracker",
 	name = "Death Cost Tracker",
 	description = "Tracks what you pay to reclaim items after dying, per session, per day and in total",
 	tags = {"death", "coffer", "gravestone", "reclaim", "cost", "sacrifice"}
@@ -218,7 +219,7 @@ public class DeathCostPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
-		store.start();
+		store.start(this::getPluginDirectory);
 		overlayManager.add(overlay);
 		navButton = NavigationButton.builder()
 			.tooltip("Death Cost Tracker")

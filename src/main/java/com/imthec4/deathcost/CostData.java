@@ -34,7 +34,7 @@ import java.util.TreeMap;
 
 /**
  * Everything stored for one character, serialised as
- * ~/.runelite/death-cost-tracker/&lt;accountHash&gt;.json.
+ * ~/.runelite/plugin-data/death-cost-tracker/&lt;accountHash&gt;.json.
  *
  * Times are ISO-8601 strings so the injected Gson needs no type adapters. Nothing in here
  * identifies the player beyond the account hash that names the file.

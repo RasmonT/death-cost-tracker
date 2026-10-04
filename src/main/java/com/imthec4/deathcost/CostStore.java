@@ -27,64 +27,68 @@ package com.imthec4.deathcost;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
-import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.Reader;
 import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Callable;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.RuneLite;
+import net.runelite.client.util.Filepath;
 
 /**
- * Reads and writes one JSON file per character on a background thread, so the client
- * thread never waits on the disk. Writes go to a temporary file first and are then moved
- * over the real one, so a crash mid-write cannot leave a half-written file behind.
- * Nothing is ever sent anywhere.
+ * Reads and writes one JSON file per character in the plugin's own data directory
+ * (.runelite/plugin-data/death-cost-tracker), through RuneLite's {@link Filepath}. All file
+ * work runs on RuneLite's background executor, so the client thread never waits on the disk.
+ * Writes go to a temporary file first and are then moved over the real one, so a crash
+ * mid-write cannot leave a half-written file behind. Nothing is ever sent anywhere.
  */
 @Slf4j
 @Singleton
 class CostStore
 {
-	static final File DIR = new File(RuneLite.RUNELITE_DIR, "death-cost-tracker");
-
 	private final Gson gson;
-	private ExecutorService io;
+	private final ScheduledExecutorService executor;
+
+	/** Set on the executor by {@link #start}; tasks queued after it always see it. */
+	@Nullable
+	private volatile Filepath dir;
 
 	@Inject
-	CostStore(Gson gson)
+	CostStore(Gson gson, ScheduledExecutorService executor)
 	{
 		this.gson = gson;
+		this.executor = executor;
 	}
 
-	void start()
+	/** Resolves the data directory in the background (Plugin.getPluginDirectory may touch the disk). */
+	void start(Callable<Filepath> pluginDirectory)
 	{
-		io = Executors.newSingleThreadExecutor(r ->
+		submit(() ->
 		{
-			Thread t = new Thread(r, "death-cost-tracker-io");
-			t.setDaemon(true);
-			return t;
+			try
+			{
+				dir = pluginDirectory.call();
+			}
+			catch (Exception e)
+			{
+				log.warn("Death Cost Tracker: no data directory, nothing will be saved", e);
+			}
 		});
 	}
 
-	/** Lets queued writes finish without blocking the caller. */
 	void stop()
 	{
-		if (io != null)
-		{
-			io.shutdown();
-			io = null;
-		}
+		// Writes already queued still run; nothing else to release
+		submit(() -> dir = null);
 	}
 
-	/** Loads the character's data in the background and hands it to {@code done} (on the io thread). */
+	/** Loads the character's data in the background and hands it to {@code done} (on the executor). */
 	void load(long accountHash, Consumer<CostData> done)
 	{
 		submit(() -> done.accept(read(accountHash)));
@@ -99,37 +103,31 @@ class CostStore
 
 	private void submit(Runnable task)
 	{
-		ExecutorService e = io;
-		if (e == null)
-		{
-			return;
-		}
 		try
 		{
-			e.execute(task);
+			executor.execute(task);
 		}
 		catch (RejectedExecutionException ignored)
 		{
-			// plugin is shutting down
+			// client is shutting down
 		}
-	}
-
-	private static File file(long accountHash)
-	{
-		return new File(DIR, accountHash + ".json");
 	}
 
 	private CostData read(long accountHash)
 	{
-		File f = file(accountHash);
-		if (!f.exists())
+		Filepath d = dir;
+		if (d == null)
 		{
 			return CostData.fresh();
 		}
-		try
+		Filepath file = d.joinSegment(accountHash + ".json");
+		if (!file.exists())
 		{
-			String json = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
-			CostData data = gson.fromJson(json, CostData.class);
+			return CostData.fresh();
+		}
+		try (Reader reader = file.openReader())
+		{
+			CostData data = gson.fromJson(reader, CostData.class);
 			if (data == null)
 			{
 				throw new JsonParseException("empty file");
@@ -139,39 +137,38 @@ class CostStore
 		catch (IOException | RuntimeException e)
 		{
 			// Keep the unreadable file for inspection and start over rather than fail
-			log.warn("Death Cost Tracker: {} is unreadable, moving it aside as .bad", f.getName(), e);
+			log.warn("Death Cost Tracker: {} is unreadable, moving it aside as .bad", file.getFileName(), e);
 			try
 			{
-				Files.move(f.toPath(), new File(DIR, f.getName() + ".bad").toPath(),
-					StandardCopyOption.REPLACE_EXISTING);
+				file.moveTo(d.joinSegment(accountHash + ".json.bad"), StandardCopyOption.REPLACE_EXISTING);
 			}
 			catch (IOException moveFailed)
 			{
-				log.warn("Death Cost Tracker: could not move {} aside", f.getName(), moveFailed);
+				log.warn("Death Cost Tracker: could not move {} aside", file.getFileName(), moveFailed);
 			}
 			return CostData.fresh();
 		}
 	}
 
-	private static void write(long accountHash, String json)
+	private void write(long accountHash, String json)
 	{
+		Filepath d = dir;
+		if (d == null)
+		{
+			return;
+		}
 		try
 		{
-			if (!DIR.exists() && !DIR.mkdirs())
-			{
-				log.warn("Death Cost Tracker: could not create {}", DIR);
-				return;
-			}
-			Path target = file(accountHash).toPath();
-			Path tmp = new File(DIR, accountHash + ".json.tmp").toPath();
-			Files.write(tmp, json.getBytes(StandardCharsets.UTF_8));
+			Filepath target = d.joinSegment(accountHash + ".json");
+			Filepath tmp = d.joinSegment(accountHash + ".json.tmp");
+			tmp.write(json);
 			try
 			{
-				Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+				tmp.moveTo(target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 			}
 			catch (AtomicMoveNotSupportedException e)
 			{
-				Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+				tmp.moveTo(target, StandardCopyOption.REPLACE_EXISTING);
 			}
 		}
 		catch (IOException e)
