@@ -66,14 +66,19 @@ class CostStore
 		this.executor = executor;
 	}
 
-	/** Resolves the data directory in the background (Plugin.getPluginDirectory may touch the disk). */
+	/**
+	 * Resolves the data directory in the background (Plugin.getPluginDirectory may touch the disk).
+	 * getPluginDirectory only returns the path; the directory itself has to be created here.
+	 */
 	void start(Callable<Filepath> pluginDirectory)
 	{
 		submit(() ->
 		{
 			try
 			{
-				dir = pluginDirectory.call();
+				Filepath d = pluginDirectory.call();
+				d.createDirectories();
+				dir = d;
 			}
 			catch (Exception e)
 			{
@@ -161,6 +166,7 @@ class CostStore
 		{
 			Filepath target = d.joinSegment(accountHash + ".json");
 			Filepath tmp = d.joinSegment(accountHash + ".json.tmp");
+			d.createDirectories(); // in case it was deleted while the client was running
 			tmp.write(json);
 			try
 			{
