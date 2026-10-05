@@ -50,9 +50,16 @@ public interface DeathCostConfig extends Config
 	String DEATHS = "deaths";
 
 	@ConfigSection(
+		name = "Coffer",
+		description = "Coffer savings: prices paid and the list of sacrifices in the side panel",
+		position = 2
+	)
+	String COFFER = "coffer";
+
+	@ConfigSection(
 		name = "Counting",
 		description = "How costs are counted",
-		position = 2
+		position = 3
 	)
 	String COUNTING = "counting";
 
@@ -97,9 +104,9 @@ public interface DeathCostConfig extends Config
 	@ConfigItem(
 		keyName = "showSavings",
 		name = "Show coffer savings",
-		description = "How much more the coffer credited for sacrificed items than selling them on the"
-			+ " Grand Exchange would pay (105% of the guide price versus the guide price minus 2% tax)."
-			+ " Never negative",
+		description = "Coffer credit for sacrificed items minus what you paid for them (Grand Exchange"
+			+ " purchases or a price entered in the side panel). Without a known price: minus what"
+			+ " selling them on the Grand Exchange would pay",
 		section = DISPLAY,
 		position = 3
 	)
@@ -178,6 +185,34 @@ public interface DeathCostConfig extends Config
 		position = 1
 	)
 	default boolean showDeathHistory()
+	{
+		return true;
+	}
+
+	// ------------------------------------------------------------------ coffer
+
+	@ConfigItem(
+		keyName = "trackPurchases",
+		name = "Use Grand Exchange prices paid",
+		description = "Remember what you pay for items on the Grand Exchange, so a later coffer"
+			+ " sacrifice of those items counts what you really paid. Stays on your computer",
+		section = COFFER,
+		position = 0
+	)
+	default boolean trackPurchases()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showCofferHistory",
+		name = "Sacrifices in side panel",
+		description = "A list of coffer sacrifices for the chosen date range in the side panel."
+			+ " Click one to enter what you paid for it",
+		section = COFFER,
+		position = 1
+	)
+	default boolean showCofferHistory()
 	{
 		return true;
 	}

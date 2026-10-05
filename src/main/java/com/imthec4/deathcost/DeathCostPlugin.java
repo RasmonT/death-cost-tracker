@@ -26,12 +26,15 @@
 package com.imthec4.deathcost;
 
 import com.google.inject.Provides;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
@@ -44,11 +47,14 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.GrandExchangeOffer;
+import net.runelite.api.GrandExchangeOfferState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GrandExchangeOfferChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.VarClientIntChanged;
 import net.runelite.api.events.VarbitChanged;
@@ -76,7 +82,9 @@ import net.runelite.client.util.Text;
 
 /**
  * Tracks what the player pays Death to get items back, per session, per day and in total,
- * and what the Death's Coffer saved compared to buying the sacrificed items back.
+ * and what the Death's Coffer saved: the credit minus what the sacrificed items cost the
+ * player (remembered Grand Exchange purchases, or a price entered in the side panel), or,
+ * when that is unknown, minus what selling them on the Grand Exchange would have paid.
  *
  * How it detects things was established from an in-game capture (discovery build):
  * <ul>
@@ -193,7 +201,7 @@ public class DeathCostPlugin extends Plugin
 	private long accountHash = -1;
 
 	/** Changes that arrived while the character's file was still loading. */
-	private final List<Consumer<CostData>> pending = new ArrayList<>();
+	private final List<Predicate<CostData>> pending = new ArrayList<>();
 
 	/** Inventory as of the last change, unnoted item id -> quantity. */
 	private final Map<Integer, Long> inventory = new HashMap<>();
@@ -238,6 +246,7 @@ public class DeathCostPlugin extends Plugin
 		{
 			clientToolbar.addNavigation(navButton);
 		}
+		panel.setCostEditor(this::setSacrificeCost);
 		publishDays();
 		if (client.getGameState() == GameState.LOGGED_IN)
 		{
@@ -315,9 +324,16 @@ public class DeathCostPlugin extends Plugin
 		data.fillDaysFromHistory(config.dayBoundary().zone());
 		data.startSession();
 		data.rollDay(config.dayBoundary().today());
-		for (Consumer<CostData> change : pending)
+		for (CostData.Sacrifice r : data.savings.records)
 		{
-			change.accept(data);
+			if (r.name == null)
+			{
+				r.name = itemName(r.id); // records converted from the old format
+			}
+		}
+		for (Predicate<CostData> change : pending)
+		{
+			change.test(data);
 		}
 		pending.clear();
 		save();
@@ -327,11 +343,23 @@ public class DeathCostPlugin extends Plugin
 	/** Applies a change now, or as soon as the character's file has loaded. */
 	private void change(Consumer<CostData> change)
 	{
+		update(d ->
+		{
+			change.accept(d);
+			return true;
+		});
+	}
+
+	/** Like {@link #change}, but saves only if the change says it changed something. */
+	private void update(Predicate<CostData> change)
+	{
 		if (data != null)
 		{
-			change.accept(data);
-			save();
-			publishDays();
+			if (change.test(data))
+			{
+				save();
+				publishDays();
+			}
 		}
 		else if (accountHash != -1)
 		{
@@ -347,14 +375,52 @@ public class DeathCostPlugin extends Plugin
 		}
 	}
 
-	/** Hands the side panel copies of the per-day records (the panel lives on the Swing thread). */
+	/** Hands the side panel copies of the records it shows (the panel lives on the Swing thread). */
 	private void publishDays()
 	{
 		CostData d = data;
 		Map<String, Long> costs = d != null ? new TreeMap<>(d.days) : new TreeMap<>();
 		Map<String, Long> deaths = d != null ? new TreeMap<>(d.deathDays) : new TreeMap<>();
+		List<DeathCostPanel.SacrificeRow> sacrifices = new ArrayList<>();
+		if (d != null)
+		{
+			ZoneId zone = config.dayBoundary().zone();
+			for (CostData.Sacrifice r : d.savings.records)
+			{
+				sacrifices.add(new DeathCostPanel.SacrificeRow(r.n, date(r.at, zone),
+					r.name != null ? r.name : "Item " + r.id, r.quantity, r.credit, r.cost,
+					r.costSource, CostData.saved(r)));
+			}
+		}
 		boolean loggedIn = d != null;
-		SwingUtilities.invokeLater(() -> panel.setDays(costs, deaths, loggedIn));
+		SwingUtilities.invokeLater(() -> panel.setDays(costs, deaths, sacrifices, loggedIn));
+	}
+
+	/** yyyy-MM-dd of an ISO instant in the given zone; "?" if unreadable. */
+	private static String date(String instant, ZoneId zone)
+	{
+		try
+		{
+			return Instant.parse(instant).atZone(zone).toLocalDate().toString();
+		}
+		catch (RuntimeException e)
+		{
+			return "?";
+		}
+	}
+
+	/** Item name, null if unknown; only call on the client thread. */
+	@Nullable
+	private String itemName(int itemId)
+	{
+		try
+		{
+			return itemManager.getItemComposition(itemId).getName();
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
 	}
 
 	@Subscribe
@@ -374,6 +440,10 @@ public class DeathCostPlugin extends Plugin
 			{
 				clientToolbar.removeNavigation(navButton);
 			}
+		}
+		if ("dayBoundary".equals(event.getKey()))
+		{
+			publishDays(); // sacrifice dates depend on it
 		}
 		SwingUtilities.invokeLater(panel::refresh);
 	}
@@ -712,6 +782,12 @@ public class DeathCostPlugin extends Plugin
 		long credit = pendingCredit;
 		Map<Integer, Long> items = new HashMap<>(pendingRemoved);
 		clearPendingSacrifice();
+		boolean usePurchases = config.trackPurchases();
+		Map<Integer, String> names = new HashMap<>();
+		for (Integer id : items.keySet())
+		{
+			names.put(id, itemName(id));
+		}
 
 		// One item type per sacrifice in practice; if several left at once, split the
 		// credit by their current price so the total still adds up exactly
@@ -736,7 +812,7 @@ public class DeathCostPlugin extends Plugin
 		{
 			for (Map.Entry<Integer, Long> e : items.entrySet())
 			{
-				d.addSacrifice(e.getKey(), e.getValue(), share.get(e.getKey()));
+				d.addSacrifice(e.getKey(), names.get(e.getKey()), e.getValue(), share.get(e.getKey()), usePurchases);
 			}
 		});
 	}
@@ -770,20 +846,47 @@ public class DeathCostPlugin extends Plugin
 		}
 	}
 
-	/** Coffer credit received minus what selling the sacrificed items on the GE would have paid. */
+	/** Coffer credit received minus what the sacrificed items cost (or would have sold for). */
 	long savings()
 	{
 		CostData d = data;
-		if (d == null)
+		return d != null ? d.totalSavings() : 0;
+	}
+
+	// ------------------------------------------------------------------ grand exchange purchases
+
+	/**
+	 * Follows the Grand Exchange slots so sacrifices can be priced with what the player paid.
+	 * While logging in or hopping the client reports every slot as empty first; those are
+	 * ignored, as RuneLite's own Grand Exchange plugin does, so a slot is only forgotten once
+	 * its offer is really collected.
+	 */
+	@Subscribe
+	public void onGrandExchangeOfferChanged(GrandExchangeOfferChanged event)
+	{
+		GrandExchangeOffer offer = event.getOffer();
+		GrandExchangeOfferState state = offer.getState();
+		if (state == GrandExchangeOfferState.EMPTY && client.getGameState() != GameState.LOGGED_IN)
 		{
-			return 0;
+			return;
 		}
-		long result = 0;
-		for (CostData.Sacrificed s : d.savings.items)
-		{
-			result += CostData.saved(s.quantity, s.credit);
-		}
-		return result;
+		boolean buy = state == GrandExchangeOfferState.BUYING
+			|| state == GrandExchangeOfferState.BOUGHT
+			|| state == GrandExchangeOfferState.CANCELLED_BUY;
+		int slot = event.getSlot();
+		int itemId = offer.getItemId();
+		int total = offer.getTotalQuantity();
+		long price = offer.getPrice();
+		int bought = offer.getQuantitySold();
+		long spent = offer.getSpent();
+		boolean track = config.trackPurchases();
+		update(d -> d.onOffer(slot, buy, itemId, total, price, bought, spent, track));
+	}
+
+	/** Called from the side panel (Swing thread): what the player paid for one sacrifice, or null. */
+	void setSacrificeCost(long n, Long cost)
+	{
+		clientThread.invoke(() -> update(d -> d.setSacrificeCost(n, cost)));
 	}
 
 	private boolean isOpen(int group)
@@ -876,8 +979,7 @@ public class DeathCostPlugin extends Plugin
 				d.total.since = CostData.now();
 				break;
 			case SAVINGS:
-				d.savings.items.clear();
-				d.savings.since = CostData.now();
+				d.resetSavings();
 				break;
 			case SESSION_DEATHS:
 				d.deaths.session = 0;
@@ -888,6 +990,7 @@ public class DeathCostPlugin extends Plugin
 				break;
 		}
 		save();
+		publishDays();
 		if (config.resetMessage())
 		{
 			chatMessageManager.queue(QueuedMessage.builder()

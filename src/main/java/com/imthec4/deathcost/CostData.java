@@ -43,6 +43,13 @@ class CostData
 {
 	static final int VERSION = 1;
 	static final int MAX_HISTORY = 200;
+	/** Sacrifices kept one by one; older ones are folded into {@link Savings#archived}. */
+	static final int MAX_SACRIFICES = 500;
+	/** Grand Exchange purchases remembered for pricing later sacrifices. */
+	static final int MAX_LOTS = 300;
+	/** The coffer only takes items worth 10,000+; cheaper purchases are not worth remembering. */
+	static final long MIN_LOT_EACH = 5_000;
+	static final int GE_SLOTS = 8;
 
 	int version = VERSION;
 	Total total;
@@ -56,6 +63,30 @@ class CostData
 	Deaths deaths;
 	/** Deaths per day (yyyy-MM-dd -> count), kept forever; only days with deaths. */
 	Map<String, Long> deathDays;
+	/** Grand Exchange purchases not yet matched to a sacrifice, oldest first. */
+	List<Lot> lots;
+	/** Last seen state of each Grand Exchange slot, to tell new purchases from ones already counted. */
+	Offer[] geSlots;
+
+	/** Items bought on the Grand Exchange in one go (or one part of a slowly filling offer). */
+	static class Lot
+	{
+		int id;
+		long quantity;
+		/** What was paid for those items in total. */
+		long cost;
+		String at;
+	}
+
+	/** A buy offer as last seen in its slot. */
+	static class Offer
+	{
+		int id;
+		int total;
+		long price;
+		int bought;
+		long spent;
+	}
 
 	static class Deaths
 	{
@@ -94,15 +125,38 @@ class CostData
 	static class Savings
 	{
 		String since;
+		/** One entry per sacrifice, oldest first. */
+		List<Sacrifice> records;
+		/** Savings of records dropped to keep the list short. */
+		long archived;
+		long nextId = 1;
+		/** Older files: a running sum per item, converted to records on load. */
 		List<Sacrificed> items;
 	}
 
-	/** Running sum per (unnoted) item id: how many were sacrificed and the coffer credit received. */
+	/** Old format: running sum per (unnoted) item id. Only read, to convert it. */
 	static class Sacrificed
 	{
 		int id;
 		long quantity;
 		long credit;
+	}
+
+	/** Items sacrificed to the coffer in one go. */
+	static class Sacrifice
+	{
+		/** Stable id, used by the side panel to edit the price paid. */
+		long n;
+		String at;
+		int id;
+		String name;
+		long quantity;
+		/** Coffer credit received. */
+		long credit;
+		/** What the player paid for these items in total; null if unknown. */
+		Long cost;
+		/** "ge" (matched to a Grand Exchange purchase) or "manual" (entered in the side panel). */
+		String costSource;
 	}
 
 	/** Death's Coffer credits 105% of the official Grand Exchange guide price. */
@@ -117,6 +171,12 @@ class CostData
 	 * credit itself (credit / 1.05), so the result is never negative and does not move with
 	 * later market prices.
 	 */
+	static long saved(Sacrifice s)
+	{
+		return s.cost != null ? s.credit - s.cost : saved(s.quantity, s.credit);
+	}
+
+	/** Never-negative estimate used when the price paid is unknown: coffer bonus plus avoided GE tax. */
 	static long saved(long quantity, long credit)
 	{
 		if (quantity <= 0 || credit <= 0)
@@ -183,11 +243,46 @@ class CostData
 		{
 			savings.since = now;
 		}
-		if (savings.items == null)
+		if (savings.records == null)
 		{
-			savings.items = new ArrayList<>();
+			savings.records = new ArrayList<>();
 		}
-		savings.items.removeIf(s -> s == null || s.id <= 0);
+		savings.records.removeIf(s -> s == null || s.id <= 0 || s.quantity <= 0);
+		for (Sacrifice r : savings.records)
+		{
+			savings.nextId = Math.max(savings.nextId, r.n + 1);
+			if (r.cost != null && r.cost < 0)
+			{
+				r.cost = null;
+			}
+		}
+		for (Sacrifice r : savings.records)
+		{
+			if (r.n <= 0)
+			{
+				r.n = savings.nextId++;
+			}
+		}
+		if (savings.items != null)
+		{
+			// Convert the old per-item sums; the price paid is unknown for them
+			for (Sacrificed old : savings.items)
+			{
+				if (old != null && old.id > 0 && old.quantity > 0)
+				{
+					savings.records.add(record(savings.since, old.id, null, old.quantity, old.credit));
+				}
+			}
+			savings.items = null;
+		}
+		lots = lots == null ? new ArrayList<>() : lots;
+		lots.removeIf(l -> l == null || l.id <= 0 || l.quantity <= 0 || l.cost < 0);
+		Offer[] slots = new Offer[GE_SLOTS];
+		if (geSlots != null)
+		{
+			System.arraycopy(geSlots, 0, slots, 0, Math.min(geSlots.length, GE_SLOTS));
+		}
+		geSlots = slots;
 		if (history == null)
 		{
 			history = new ArrayList<>();
@@ -288,22 +383,167 @@ class CostData
 		}
 	}
 
-	void addSacrifice(int itemId, long quantity, long credit)
+	/**
+	 * Records a sacrifice. With {@code usePurchases} the items are matched to remembered Grand
+	 * Exchange purchases, oldest first; any part with no matching purchase gets its own record
+	 * with an unknown price, the credit split by quantity.
+	 */
+	void addSacrifice(int itemId, String name, long quantity, long credit, boolean usePurchases)
 	{
-		for (Sacrificed s : savings.items)
+		if (quantity <= 0)
 		{
-			if (s.id == itemId)
+			return;
+		}
+		long coveredQuantity = 0;
+		long coveredCost = 0;
+		if (usePurchases)
+		{
+			for (int i = 0; i < lots.size() && coveredQuantity < quantity; i++)
 			{
-				s.quantity += quantity;
-				s.credit += credit;
-				return;
+				Lot lot = lots.get(i);
+				if (lot.id != itemId)
+				{
+					continue;
+				}
+				long take = Math.min(lot.quantity, quantity - coveredQuantity);
+				long part = take == lot.quantity ? lot.cost : Math.round((double) lot.cost * take / lot.quantity);
+				coveredQuantity += take;
+				coveredCost += part;
+				lot.quantity -= take;
+				lot.cost -= part;
+			}
+			lots.removeIf(l -> l.quantity <= 0);
+		}
+
+		String now = now();
+		if (coveredQuantity == quantity)
+		{
+			addRecord(record(now, itemId, name, quantity, credit), coveredCost);
+		}
+		else if (coveredQuantity > 0)
+		{
+			long knownCredit = Math.round((double) credit * coveredQuantity / quantity);
+			addRecord(record(now, itemId, name, coveredQuantity, knownCredit), coveredCost);
+			addRecord(record(now, itemId, name, quantity - coveredQuantity, credit - knownCredit), null);
+		}
+		else
+		{
+			addRecord(record(now, itemId, name, quantity, credit), null);
+		}
+	}
+
+	private Sacrifice record(String at, int itemId, String name, long quantity, long credit)
+	{
+		Sacrifice r = new Sacrifice();
+		r.n = savings.nextId++;
+		r.at = at;
+		r.id = itemId;
+		r.name = name;
+		r.quantity = quantity;
+		r.credit = credit;
+		return r;
+	}
+
+	private void addRecord(Sacrifice r, Long geCost)
+	{
+		if (geCost != null)
+		{
+			r.cost = geCost;
+			r.costSource = "ge";
+		}
+		savings.records.add(r);
+		while (savings.records.size() > MAX_SACRIFICES)
+		{
+			savings.archived += saved(savings.records.remove(0));
+		}
+	}
+
+	/** Sets (or with null clears) what was paid for a sacrifice. Returns false if it is gone. */
+	boolean setSacrificeCost(long n, Long cost)
+	{
+		for (Sacrifice r : savings.records)
+		{
+			if (r.n == n)
+			{
+				r.cost = cost;
+				r.costSource = cost != null ? "manual" : null;
+				return true;
 			}
 		}
-		Sacrificed s = new Sacrificed();
-		s.id = itemId;
-		s.quantity = quantity;
-		s.credit = credit;
-		savings.items.add(s);
+		return false;
+	}
+
+	long totalSavings()
+	{
+		long sum = savings.archived;
+		for (Sacrifice r : savings.records)
+		{
+			sum += saved(r);
+		}
+		return sum;
+	}
+
+	void resetSavings()
+	{
+		savings.records.clear();
+		savings.archived = 0;
+		savings.since = now();
+	}
+
+	/**
+	 * Takes the new state of a Grand Exchange slot. A buy offer that is the same one as last time
+	 * adds only what was bought since; a different one adds everything it bought so far. With
+	 * {@code track} off the slot is still followed, so turning it on later does not count old
+	 * purchases twice. Returns true if anything stored changed.
+	 */
+	boolean onOffer(int slot, boolean buy, int itemId, int total, long price, int bought, long spent, boolean track)
+	{
+		if (slot < 0 || slot >= GE_SLOTS)
+		{
+			return false;
+		}
+		Offer old = geSlots[slot];
+		if (!buy || itemId <= 0)
+		{
+			// Empty slot or a sell offer: nothing bought here
+			if (old == null)
+			{
+				return false;
+			}
+			geSlots[slot] = null;
+			return true;
+		}
+		boolean same = old != null && old.id == itemId && old.total == total && old.price == price
+			&& bought >= old.bought && spent >= old.spent;
+		if (same && old.bought == bought && old.spent == spent)
+		{
+			return false;
+		}
+		long newQuantity = same ? bought - old.bought : bought;
+		long newCost = same ? spent - old.spent : spent;
+
+		Offer o = new Offer();
+		o.id = itemId;
+		o.total = total;
+		o.price = price;
+		o.bought = bought;
+		o.spent = spent;
+		geSlots[slot] = o;
+
+		if (track && newQuantity > 0 && newCost >= newQuantity * MIN_LOT_EACH)
+		{
+			Lot lot = new Lot();
+			lot.id = itemId;
+			lot.quantity = newQuantity;
+			lot.cost = newCost;
+			lot.at = now();
+			lots.add(lot);
+			while (lots.size() > MAX_LOTS)
+			{
+				lots.remove(0);
+			}
+		}
+		return true;
 	}
 
 	void setCofferBalance(long balance)

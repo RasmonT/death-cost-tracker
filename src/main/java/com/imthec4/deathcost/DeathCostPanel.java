@@ -33,6 +33,8 @@ import java.awt.GridLayout;
 import java.awt.LayoutManager;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.time.format.TextStyle;
@@ -42,9 +44,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.function.BiConsumer;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
@@ -54,7 +59,9 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 
 /**
- * Side panel: pick a date range and see what dying cost in it, day by day.
+ * Side panel: pick a date range and see what dying cost in it, day by day, the deaths in it
+ * and the coffer sacrifices made in it. Clicking a sacrifice lets the player enter what the
+ * items cost them.
  * Lives on the Swing thread and only ever works on its own copy of the per-day record,
  * which the plugin hands over after every change. Colours come from RuneLite's ColorScheme
  * and are set explicitly on every component, so nothing falls back to the look-and-feel's
@@ -63,6 +70,8 @@ import net.runelite.client.ui.PluginPanel;
 class DeathCostPanel extends PluginPanel
 {
 	private static final Color ERROR = new Color(0xE57373);
+	private static final Color GAIN = new Color(0x4CAF50);
+	private static final Color LOSS = new Color(0xE57373);
 	private static final Color BACKGROUND = ColorScheme.DARK_GRAY_COLOR;
 	private static final Color CARD = ColorScheme.DARKER_GRAY_COLOR;
 	private static final Color CARD_HOVER = ColorScheme.DARKER_GRAY_HOVER_COLOR;
@@ -78,13 +87,51 @@ class DeathCostPanel extends PluginPanel
 	private final JLabel deathTotalLabel = new JLabel(" ", SwingConstants.CENTER);
 	private final JLabel deathInfoLabel = new JLabel(" ", SwingConstants.CENTER);
 	private final JPanel deathList = new JPanel(new GridLayout(0, 1, 0, 2));
+	private final JPanel cofferSection = new JPanel(new BorderLayout(0, 6));
+	private final JLabel cofferTotalLabel = new JLabel(" ", SwingConstants.CENTER);
+	private final JLabel cofferInfoLabel = new JLabel(" ", SwingConstants.CENTER);
+	private final JPanel cofferList = new JPanel(new GridLayout(0, 1, 0, 2));
 	private final List<QuickRange> quickRanges = new ArrayList<>();
 
 	/** Copy of the logged-in character's per-day costs; empty while logged out. */
 	private NavigableMap<String, Long> days = new TreeMap<>();
 	/** Copy of the per-day death counts. */
 	private NavigableMap<String, Long> deathDays = new TreeMap<>();
+	/** Copy of the coffer sacrifices, oldest first. */
+	private List<SacrificeRow> sacrifices = new ArrayList<>();
 	private boolean loggedIn;
+
+	/** Hands an edited price (sacrifice id, coins or null) to the plugin. */
+	@Nullable
+	private BiConsumer<Long, Long> costEditor;
+
+	/** One coffer sacrifice as the panel shows it; an immutable snapshot made by the plugin. */
+	static final class SacrificeRow
+	{
+		final long n;
+		final String date;
+		final String name;
+		final long quantity;
+		final long credit;
+		@Nullable
+		final Long cost;
+		@Nullable
+		final String costSource;
+		final long saved;
+
+		SacrificeRow(long n, String date, String name, long quantity, long credit, @Nullable Long cost,
+			@Nullable String costSource, long saved)
+		{
+			this.n = n;
+			this.date = date;
+			this.name = name;
+			this.quantity = quantity;
+			this.credit = credit;
+			this.cost = cost;
+			this.costSource = costSource;
+			this.saved = saved;
+		}
+	}
 
 	@Inject
 	DeathCostPanel(DeathCostConfig config)
@@ -123,13 +170,23 @@ class DeathCostPanel extends PluginPanel
 		deathSection.add(card("Deaths", deathTotalLabel, deathInfoLabel), BorderLayout.NORTH);
 		deathSection.add(deathList, BorderLayout.CENTER);
 
+		cofferList.setBackground(BACKGROUND);
+		cofferSection.setBackground(BACKGROUND);
+		cofferSection.add(card("Coffer savings", cofferTotalLabel, cofferInfoLabel), BorderLayout.NORTH);
+		cofferSection.add(cofferList, BorderLayout.CENTER);
+
+		JPanel lower = panel(new BorderLayout(0, 10));
+		lower.add(deathSection, BorderLayout.NORTH);
+		lower.add(cofferSection, BorderLayout.CENTER);
+
 		JPanel lists = panel(new BorderLayout(0, 10));
 		lists.add(dayList, BorderLayout.NORTH);
-		lists.add(deathSection, BorderLayout.CENTER);
+		lists.add(lower, BorderLayout.CENTER);
 		add(lists, BorderLayout.CENTER);
 
-		JLabel note = new JLabel("<html><div style='width:170px'>Enter a date and press Enter. Resetting the overlay counters"
-			+ " does not change this history.</div></html>");
+		JLabel note = new JLabel("<html><div style='width:170px'>Enter a date and press Enter. Click a sacrifice to"
+			+ " enter what you paid for it. Resetting Session, Today or Total does not change this history;"
+			+ " resetting coffer savings clears the sacrifices.</div></html>");
 		note.setFont(FontManager.getRunescapeSmallFont());
 		note.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 		add(note, BorderLayout.SOUTH);
@@ -272,11 +329,18 @@ class DeathCostPanel extends PluginPanel
 		refresh();
 	}
 
+	void setCostEditor(BiConsumer<Long, Long> costEditor)
+	{
+		this.costEditor = costEditor;
+	}
+
 	/** Called by the plugin, on the Swing thread, with a fresh copy after every change. */
-	void setDays(Map<String, Long> newDays, Map<String, Long> newDeathDays, boolean loggedIn)
+	void setDays(Map<String, Long> newDays, Map<String, Long> newDeathDays, List<SacrificeRow> newSacrifices,
+		boolean loggedIn)
 	{
 		this.days = new TreeMap<>(newDays);
 		this.deathDays = new TreeMap<>(newDeathDays);
+		this.sacrifices = new ArrayList<>(newSacrifices);
 		this.loggedIn = loggedIn;
 		refresh();
 	}
@@ -288,6 +352,13 @@ class DeathCostPanel extends PluginPanel
 		deathSection.setVisible(config.showDeathHistory());
 		deathTotalLabel.setText("-");
 		deathInfoLabel.setText(" ");
+		cofferList.removeAll();
+		cofferSection.setVisible(config.showCofferHistory());
+		cofferTotalLabel.setText("-");
+		cofferTotalLabel.setForeground(Color.WHITE);
+		cofferInfoLabel.setText(" ");
+		cofferList.revalidate();
+		cofferList.repaint();
 		if (!loggedIn)
 		{
 			show("-", "Log in to see this character's history", ColorScheme.LIGHT_GRAY_COLOR);
@@ -341,6 +412,170 @@ class DeathCostPanel extends PluginPanel
 		deathInfoLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		deathList.revalidate();
 		deathList.repaint();
+
+		String fromKey = from.toString();
+		String toKey = to.toString();
+		long saved = 0;
+		int shown = 0;
+		int unknown = 0;
+		for (int i = sacrifices.size() - 1; i >= 0; i--)
+		{
+			SacrificeRow r = sacrifices.get(i);
+			if (r.date.compareTo(fromKey) < 0 || r.date.compareTo(toKey) > 0 || "?".equals(r.date))
+			{
+				continue;
+			}
+			saved += r.saved;
+			shown++;
+			if (r.cost == null)
+			{
+				unknown++;
+			}
+			cofferList.add(sacrificeRow(r, format));
+		}
+		cofferTotalLabel.setText(signed(format, saved) + " gp");
+		cofferTotalLabel.setForeground(saved > 0 ? GAIN : saved < 0 ? LOSS : Color.WHITE);
+		cofferTotalLabel.setToolTipText(CoinFormat.EXACT.format(saved) + " coins");
+		cofferInfoLabel.setText(shown == 0 ? "No sacrifices in this range"
+			: shown + (shown == 1 ? " sacrifice" : " sacrifices")
+			+ (unknown == 0 ? "" : ", " + unknown + " without a price paid"));
+		cofferInfoLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		cofferList.revalidate();
+		cofferList.repaint();
+	}
+
+	private static String signed(CoinFormat format, long coins)
+	{
+		return (coins > 0 ? "+" : "") + format.format(coins);
+	}
+
+	private JPanel sacrificeRow(SacrificeRow r, CoinFormat format)
+	{
+		JPanel row = new JPanel(new BorderLayout(0, 2));
+		row.setBackground(CARD);
+		row.setBorder(new EmptyBorder(6, 8, 6, 8));
+		row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+		JPanel top = new JPanel(new BorderLayout(6, 0));
+		top.setOpaque(false);
+		JLabel item = new JLabel(r.quantity + " x " + r.name);
+		item.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		top.add(item, BorderLayout.CENTER);
+		JLabel value = new JLabel(signed(format, r.saved));
+		value.setForeground(r.saved > 0 ? GAIN : r.saved < 0 ? LOSS : Color.WHITE);
+		top.add(value, BorderLayout.EAST);
+		row.add(top, BorderLayout.NORTH);
+
+		JPanel bottom = new JPanel(new BorderLayout(6, 0));
+		bottom.setOpaque(false);
+		JLabel date = new JLabel(r.date);
+		date.setFont(FontManager.getRunescapeSmallFont());
+		date.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		bottom.add(date, BorderLayout.WEST);
+		JLabel paid = new JLabel(r.cost != null ? "paid " + format.format(r.cost) : "paid ?");
+		paid.setFont(FontManager.getRunescapeSmallFont());
+		paid.setForeground(r.cost != null ? ColorScheme.MEDIUM_GRAY_COLOR : ColorScheme.BRAND_ORANGE);
+		bottom.add(paid, BorderLayout.EAST);
+		row.add(bottom, BorderLayout.SOUTH);
+
+		String paidText = r.cost == null ? "unknown, counted as if sold on the Grand Exchange"
+			: CoinFormat.EXACT.format(r.cost) + " coins (" + ("ge".equals(r.costSource) ? "Grand Exchange purchase" : "entered by you") + ")";
+		row.setToolTipText("<html>Coffer credit: " + CoinFormat.EXACT.format(r.credit) + " coins<br>Paid: " + paidText
+			+ "<br>Click to change what you paid</html>");
+
+		row.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				editCost(r);
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				row.setBackground(CARD_HOVER);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				row.setBackground(CARD);
+			}
+		});
+		return row;
+	}
+
+	/** Asks what the player paid for one sacrifice and hands the answer to the plugin. */
+	private void editCost(SacrificeRow r)
+	{
+		if (costEditor == null)
+		{
+			return;
+		}
+		String message = r.quantity + " x " + r.name + "\nCoffer credit: " + CoinFormat.EXACT.format(r.credit)
+			+ " coins\n\nWhat did you pay for all of them? For example 166000, 166k or 1.2m."
+			+ "\nEnter 0 for loot. Leave it empty if you do not know.";
+		Object answer = JOptionPane.showInputDialog(this, message, "Death Cost Tracker",
+			JOptionPane.PLAIN_MESSAGE, null, null, r.cost != null ? CoinFormat.EXACT.format(r.cost) : "");
+		if (answer == null)
+		{
+			return; // cancelled
+		}
+		String text = answer.toString().trim();
+		Long cost = null;
+		if (!text.isEmpty())
+		{
+			cost = parseCoins(text);
+			if (cost == null)
+			{
+				JOptionPane.showMessageDialog(this, "\"" + text + "\" is not an amount. Use for example 166000,"
+					+ " 166k or 1.2m.", "Death Cost Tracker", JOptionPane.WARNING_MESSAGE);
+				return;
+			}
+		}
+		costEditor.accept(r.n, cost);
+	}
+
+	/** Parses "166000", "166,000", "166k", "1.2m" or "1b"; null if it is not a non-negative amount. */
+	@Nullable
+	static Long parseCoins(String text)
+	{
+		String t = text.toLowerCase(Locale.ROOT).replace(",", "").replace(" ", "");
+		if (t.endsWith("gp"))
+		{
+			t = t.substring(0, t.length() - 2);
+		}
+		long multiplier = 1;
+		if (t.endsWith("k"))
+		{
+			multiplier = 1_000;
+		}
+		else if (t.endsWith("m"))
+		{
+			multiplier = 1_000_000;
+		}
+		else if (t.endsWith("b"))
+		{
+			multiplier = 1_000_000_000;
+		}
+		if (multiplier > 1)
+		{
+			t = t.substring(0, t.length() - 1);
+		}
+		try
+		{
+			BigDecimal value = new BigDecimal(t).multiply(BigDecimal.valueOf(multiplier));
+			if (value.signum() < 0)
+			{
+				return null;
+			}
+			return value.setScale(0, RoundingMode.HALF_UP).longValueExact();
+		}
+		catch (NumberFormatException | ArithmeticException e)
+		{
+			return null;
+		}
 	}
 
 	private void show(String total, String info, Color infoColor)
