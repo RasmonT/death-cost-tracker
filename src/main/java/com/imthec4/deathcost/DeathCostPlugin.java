@@ -770,7 +770,7 @@ public class DeathCostPlugin extends Plugin
 		}
 	}
 
-	/** Coffer credit received minus what the sacrificed items cost on the Grand Exchange now. */
+	/** Coffer credit received minus what selling the sacrificed items on the GE would have paid. */
 	long savings()
 	{
 		CostData d = data;
@@ -781,7 +781,7 @@ public class DeathCostPlugin extends Plugin
 		long result = 0;
 		for (CostData.Sacrificed s : d.savings.items)
 		{
-			result += s.credit - itemManager.getItemPrice(s.id) * s.quantity;
+			result += CostData.saved(s.quantity, s.credit);
 		}
 		return result;
 	}

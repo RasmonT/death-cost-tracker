@@ -52,7 +52,6 @@ import net.runelite.client.util.ImageUtil;
 class DeathCostOverlay extends OverlayPanel
 {
 	private static final Color GAIN = new Color(0x4CAF50);
-	private static final Color LOSS = new Color(0xE57373);
 
 	private final DeathCostPlugin plugin;
 	private final DeathCostConfig config;
@@ -124,7 +123,7 @@ class DeathCostOverlay extends OverlayPanel
 		if (savings)
 		{
 			line("Coffer saved", format.format(savingsValue),
-				savingsValue > 0 ? GAIN : savingsValue < 0 ? LOSS : Color.WHITE);
+				savingsValue > 0 ? GAIN : Color.WHITE);
 		}
 		if (coffer)
 		{

@@ -97,8 +97,9 @@ public interface DeathCostConfig extends Config
 	@ConfigItem(
 		keyName = "showSavings",
 		name = "Show coffer savings",
-		description = "Coffer credit received for sacrificed items minus what those items cost on the"
-			+ " Grand Exchange now",
+		description = "How much more the coffer credited for sacrificed items than selling them on the"
+			+ " Grand Exchange would pay (105% of the guide price versus the guide price minus 2% tax)."
+			+ " Never negative",
 		section = DISPLAY,
 		position = 3
 	)

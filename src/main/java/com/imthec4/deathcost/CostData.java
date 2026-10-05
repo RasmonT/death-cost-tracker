@@ -105,6 +105,30 @@ class CostData
 		long credit;
 	}
 
+	/** Death's Coffer credits 105% of the official Grand Exchange guide price. */
+	static final double COFFER_RATE = 1.05;
+	/** Grand Exchange sales tax: 2% of the price, at most 5M per item. */
+	static final double GE_TAX_RATE = 0.02;
+	static final long GE_TAX_CAP = 5_000_000;
+
+	/**
+	 * What a sacrifice gained over selling the same items on the Grand Exchange: the coffer
+	 * credit minus the guide price after the GE tax. The guide price is read back from the
+	 * credit itself (credit / 1.05), so the result is never negative and does not move with
+	 * later market prices.
+	 */
+	static long saved(long quantity, long credit)
+	{
+		if (quantity <= 0 || credit <= 0)
+		{
+			return 0;
+		}
+		double guideEach = credit / COFFER_RATE / quantity;
+		double taxEach = Math.min(Math.floor(guideEach * GE_TAX_RATE), GE_TAX_CAP);
+		long sold = Math.round((guideEach - taxEach) * quantity);
+		return Math.max(0, credit - sold);
+	}
+
 	static class Payment
 	{
 		String at;
