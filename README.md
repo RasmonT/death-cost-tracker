@@ -36,6 +36,8 @@ Every fee is also filed under the day it was paid, and that record is kept for g
 panel (the gravestone icon in RuneLite's sidebar) lets you pick a range with *From* and *To*,
 or with one click for the last 7 days, 30 days, this month or everything. It shows the total
 for that range plus each day that had costs. Resetting the overlay counters does not change it.
+*Reset all data* at the bottom of the panel deletes everything stored for the logged-in
+character (after a confirmation), as if its file had never existed.
 
 ## Deaths
 
