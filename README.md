@@ -1,8 +1,8 @@
 # Death Cost Tracker
 
 Tracks what you pay Death to get your items back: this session, today and in total, for each
-character. It also shows how much the Death's Coffer saved you compared with selling the
-sacrificed items on the Grand Exchange.
+character. It also shows how much the Death's Coffer really saved you: the coffer credit
+minus what you paid for the items you sacrificed.
 
 **All data stays on your computer.** The plugin makes no network requests of its own. Each
 character gets one file:
@@ -23,7 +23,7 @@ one is started.
 | Session | Fees paid since you logged in. World hops keep the session; logging out (or the 6-hour logout) ends it |
 | Today | Fees paid today. The day starts at 00:00 UTC (the game's daily reset) or local midnight |
 | Total | Fees paid since the total was last reset |
-| Coffer saved | How much more the coffer credited for sacrificed items than selling them on the GE would pay. The coffer gives 105% of the guide price, a GE sale gives the guide price minus the 2% tax, so this is never negative |
+| Coffer saved | Coffer credit for sacrificed items minus what you paid for them (see *Coffer savings* below) |
 | Coffer | The last Death's Coffer balance the game showed you |
 
 Move it with Alt-drag. Right-click it to reset Session, Today, Total or Coffer savings; each
@@ -45,6 +45,24 @@ deaths have their own reset, independent of the cost counters. Deaths are also k
 so the side panel shows a second table with the deaths in the chosen date range (this table
 can be turned off as well).
 
+## Coffer savings
+
+For every sacrifice the plugin needs to know what the items cost you:
+
+- **Grand Exchange purchases** are remembered automatically (items worth 5,000 or more each).
+  When you later sacrifice that item, the oldest purchase of it is used. Bought 2 staffs for
+  83k each and the coffer gave 87k each? That is 8k saved.
+- **Anything else** (loot, items bought before installing the plugin, trades): open the side
+  panel and click the sacrifice to enter what you paid in total. Enter 0 for loot.
+- **Unknown price**: the sacrifice counts as if you had sold the items on the Grand Exchange
+  instead. The coffer gives 105% of the guide price, a sale gives the guide price minus the 2%
+  tax, so this part is never negative.
+
+With a known price the saving can be negative: an item bought for more than the coffer gave
+for it shows as a loss, in red. The side panel lists every sacrifice in the chosen date range
+with its saving. Resetting coffer savings clears that list. *Use Grand Exchange prices paid*
+and the list can both be turned off.
+
 ## What is counted
 
 Every reclaim fee, read from the game's own messages:
@@ -55,7 +73,8 @@ Every reclaim fee, read from the game's own messages:
   not counted twice.
 - **At a boss reclaim NPC** (for example Torfinn after Vorkath), including when the bank pays.
 - **At Death's Office**, for items left in a grave longer than 15 minutes.
-- **Coffer sacrifices**: the items and the credit they gave, for the savings line.
+- **Coffer sacrifices**: the items, the credit they gave and what you paid for them, for the
+  savings line.
 
 Bank payments are only counted while a reclaim interface is open, so Grand Exchange purchases
 paid from the bank never show up as death costs.
