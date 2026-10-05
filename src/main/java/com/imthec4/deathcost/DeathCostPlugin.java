@@ -247,6 +247,7 @@ public class DeathCostPlugin extends Plugin
 			clientToolbar.addNavigation(navButton);
 		}
 		panel.setCostEditor(this::setSacrificeCost);
+		panel.setResetAllAction(this::confirmResetAll);
 		publishDays();
 		if (client.getGameState() == GameState.LOGGED_IN)
 		{
@@ -956,6 +957,54 @@ public class DeathCostPlugin extends Plugin
 				return d.deaths.total;
 			default:
 				return savings();
+		}
+	}
+
+	/** From the side panel only: asks, then wipes everything stored for this character. */
+	void confirmResetAll()
+	{
+		if (data == null)
+		{
+			return;
+		}
+		SwingUtilities.invokeLater(() ->
+		{
+			int answer = JOptionPane.showConfirmDialog(panel,
+				"Delete ALL Death Cost Tracker data for this character?\n\n"
+					+ "Costs, deaths, coffer savings, remembered Grand Exchange prices and the history\n"
+					+ "by date all start from zero. This cannot be undone.",
+				"Death Cost Tracker", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+			if (answer == JOptionPane.YES_OPTION)
+			{
+				clientThread.invoke(this::resetAll);
+			}
+		});
+	}
+
+	private void resetAll()
+	{
+		if (data == null || accountHash == -1)
+		{
+			return;
+		}
+		// Half-collected payments and sacrifices belong to the old data
+		pendingBank = 0;
+		pendingInstanceCoffer = 0;
+		pendingInstanceBank = 0;
+		instanceOffer = 0;
+		clearPendingSacrifice();
+		CostData fresh = CostData.fresh();
+		fresh.startSession();
+		fresh.rollDay(config.dayBoundary().today());
+		data = fresh;
+		save();
+		publishDays();
+		if (config.resetMessage())
+		{
+			chatMessageManager.queue(QueuedMessage.builder()
+				.type(ChatMessageType.CONSOLE)
+				.runeLiteFormattedMessage("Death Cost Tracker: all data for this character was deleted.")
+				.build());
 		}
 	}
 

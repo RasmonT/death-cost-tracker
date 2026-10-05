@@ -105,6 +105,12 @@ class DeathCostPanel extends PluginPanel
 	@Nullable
 	private BiConsumer<Long, Long> costEditor;
 
+	/** Asks for confirmation and wipes this character's data; set by the plugin. */
+	@Nullable
+	private Runnable resetAllAction;
+
+	private final JLabel resetAll = new JLabel("Reset all data", SwingConstants.CENTER);
+
 	/** One coffer sacrifice as the panel shows it; an immutable snapshot made by the plugin. */
 	static final class SacrificeRow
 	{
@@ -184,12 +190,47 @@ class DeathCostPanel extends PluginPanel
 		lists.add(lower, BorderLayout.CENTER);
 		add(lists, BorderLayout.CENTER);
 
-		JLabel note = new JLabel("<html><div style='width:170px'>Enter a date and press Enter. Click a sacrifice to"
+		JLabel note = new JLabel("<html><div style='width:150px'>Enter a date and press Enter. Click a sacrifice to"
 			+ " enter what you paid for it. Resetting Session, Today or Total does not change this history;"
-			+ " resetting coffer savings clears the sacrifices.</div></html>");
+			+ " resetting coffer savings clears the sacrifices. Reset all data clears everything.</div></html>");
 		note.setFont(FontManager.getRunescapeSmallFont());
 		note.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
-		add(note, BorderLayout.SOUTH);
+
+		resetAll.setOpaque(true);
+		resetAll.setBackground(CARD);
+		resetAll.setForeground(ERROR);
+		resetAll.setFont(FontManager.getRunescapeSmallFont());
+		resetAll.setBorder(new EmptyBorder(6, 0, 6, 0));
+		resetAll.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		resetAll.setToolTipText("Delete all of this character's Death Cost Tracker data, after a confirmation");
+		resetAll.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				if (resetAllAction != null && loggedIn)
+				{
+					resetAllAction.run();
+				}
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				resetAll.setBackground(CARD_HOVER);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				resetAll.setBackground(CARD);
+			}
+		});
+
+		JPanel bottom = panel(new BorderLayout(0, 8));
+		bottom.add(note, BorderLayout.NORTH);
+		bottom.add(resetAll, BorderLayout.SOUTH);
+		add(bottom, BorderLayout.SOUTH);
 
 		setRange(30);
 	}
@@ -329,6 +370,11 @@ class DeathCostPanel extends PluginPanel
 		refresh();
 	}
 
+	void setResetAllAction(Runnable action)
+	{
+		this.resetAllAction = action;
+	}
+
 	void setCostEditor(BiConsumer<Long, Long> costEditor)
 	{
 		this.costEditor = costEditor;
@@ -347,6 +393,7 @@ class DeathCostPanel extends PluginPanel
 
 	void refresh()
 	{
+		resetAll.setVisible(loggedIn);
 		dayList.removeAll();
 		deathList.removeAll();
 		deathSection.setVisible(config.showDeathHistory());
