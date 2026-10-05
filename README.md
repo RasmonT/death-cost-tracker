@@ -1,8 +1,8 @@
 # Death Cost Tracker
 
 Tracks what you pay Death to get your items back: this session, today and in total, for each
-character. It also shows how much the Death's Coffer saved you compared with buying the
-sacrificed items back on the Grand Exchange.
+character. It also shows how much the Death's Coffer saved you compared with selling the
+sacrificed items on the Grand Exchange.
 
 **All data stays on your computer.** The plugin makes no network requests of its own. Each
 character gets one file:
@@ -23,7 +23,7 @@ one is started.
 | Session | Fees paid since you logged in. World hops keep the session; logging out (or the 6-hour logout) ends it |
 | Today | Fees paid today. The day starts at 00:00 UTC (the game's daily reset) or local midnight |
 | Total | Fees paid since the total was last reset |
-| Coffer saved | Coffer credit received for sacrificed items minus what those items cost on the GE now |
+| Coffer saved | How much more the coffer credited for sacrificed items than selling them on the GE would pay. The coffer gives 105% of the guide price, a GE sale gives the guide price minus the 2% tax, so this is never negative |
 | Coffer | The last Death's Coffer balance the game showed you |
 
 Move it with Alt-drag. Right-click it to reset Session, Today, Total or Coffer savings; each
