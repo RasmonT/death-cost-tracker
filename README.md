@@ -1,20 +1,11 @@
 # Death Cost Tracker
 
 Tracks what you pay Death to get your items back: this session, today and in total, for each
-character. It also shows how much the Death's Coffer really saved you: the coffer credit
-minus what you paid for the items you sacrificed.
+character. A side panel shows your costs and deaths day by day for any date range.
 
-**All data stays on your computer.** The plugin makes no network requests of its own. Each
-character gets one file:
-
-```
-%USERPROFILE%\.runelite\plugin-data\death-cost-tracker\<account hash>.json
-```
-
-The file is named after RuneLite's account hash, not your display name, and holds no name,
-world or location. Writes are atomic (temporary file, then a move), so closing or crashing
-the client mid-write cannot corrupt it. An unreadable file is renamed to `.bad` and a fresh
-one is started.
+It also shows how much the Death's Coffer really saved you: the coffer credit minus what you
+paid for the items you sacrificed, from your Grand Exchange purchases or a price you enter.
+All data stays on your computer.
 
 ## The overlay
 
@@ -85,3 +76,22 @@ paid from the bank never show up as death costs.
 *Count private instances* in the settings to add them to the counters, whether the coffer, the
 bank or both paid for them.
 Either way the *Coffer* line goes down when an instance is paid from it.
+
+## Your data
+
+The plugin makes no network requests of its own. Each character gets one file:
+
+```
+%USERPROFILE%\.runelite\plugin-data\death-cost-tracker\<account hash>.json
+```
+
+The file is named after RuneLite's account hash, not your display name, and holds no name,
+world or location. Writes are atomic (temporary file, then a move), so closing or crashing
+the client mid-write cannot corrupt it. An unreadable file is renamed to `.bad` and a fresh
+one is started.
+
+## Support
+
+Questions, ideas or a bug? Join the [Discord](https://discord.gg/XgxjhyznbZ) or open an issue
+on GitHub. The side panel has a *Join the Discord* button as well; it only opens your browser
+when you click it.

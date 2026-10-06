@@ -54,6 +54,7 @@ import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
+import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
@@ -110,6 +111,12 @@ class DeathCostPanel extends PluginPanel
 	private Runnable resetAllAction;
 
 	private final JLabel resetAll = new JLabel("Reset all data", SwingConstants.CENTER);
+
+	static final String DISCORD_URL = "https://discord.gg/XgxjhyznbZ";
+	/** Discord's brand colour and its darker hover shade, so the button reads as Discord at a glance. */
+	private static final Color DISCORD = new Color(0x5865F2);
+	private static final Color DISCORD_HOVER = new Color(0x4752C4);
+	private final JLabel discord = new JLabel("Join the Discord", SwingConstants.CENTER);
 
 	/** One coffer sacrifice as the panel shows it; an immutable snapshot made by the plugin. */
 	static final class SacrificeRow
@@ -227,8 +234,38 @@ class DeathCostPanel extends PluginPanel
 			}
 		});
 
+		// Opens the browser only when clicked; the plugin itself never contacts Discord
+		discord.setOpaque(true);
+		discord.setBackground(DISCORD);
+		discord.setForeground(Color.WHITE);
+		discord.setFont(FontManager.getRunescapeBoldFont());
+		discord.setBorder(new EmptyBorder(7, 0, 7, 0));
+		discord.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		discord.setToolTipText("Questions, ideas or a bug? Opens " + DISCORD_URL + " in your browser");
+		discord.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				LinkBrowser.browse(DISCORD_URL);
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				discord.setBackground(DISCORD_HOVER);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				discord.setBackground(DISCORD);
+			}
+		});
+
 		JPanel bottom = panel(new BorderLayout(0, 8));
 		bottom.add(note, BorderLayout.NORTH);
+		bottom.add(discord, BorderLayout.CENTER);
 		bottom.add(resetAll, BorderLayout.SOUTH);
 		add(bottom, BorderLayout.SOUTH);
 
