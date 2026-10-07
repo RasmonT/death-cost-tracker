@@ -63,7 +63,8 @@ Every reclaim fee, read from the game's own messages:
 - **At a gravestone**, paid from the coffer, the bank, or both. The game ends with
   *"Death charges you 315,000 x Coins."*; when the coffer could not cover it all, the bank's
   share (*"Payment has been taken from your bank: 180,096 x Coins"*) is part of that fee and is
-  not counted twice.
+  not counted twice. With an empty coffer some graves (Doom of Mokhaiotl) send only the bank
+  line; it counts once the game confirms the grave is empty.
 - **At a boss reclaim NPC** (for example Torfinn after Vorkath), including when the bank pays.
 - **At Death's Office**, for items left in a grave longer than 15 minutes.
 - **Coffer sacrifices**: the items, the credit they gave and what you paid for them, for the

@@ -108,9 +108,12 @@ import net.runelite.client.util.Text;
  * "Payment has been taken from your bank: 9,675 x Coins". With an empty coffer only the bank
  * line comes; it is recognised by the "Pay 25,000 x Coins?" dialog shown just before it.
  * <p>
- * The bank message is counted only while a reclaim interface is open: the game uses similar
- * wording elsewhere ("Some of your payment has been taken from your bank." on the Grand
- * Exchange), and that must never count as a death cost.
+ * The bank message is counted while a reclaim interface is open, or when "You successfully
+ * retrieved everything from your gravestone." follows it within a few ticks: a grave can be
+ * emptied without its window (seen at Doom of Mokhaiotl, 2026-10-07: with an empty coffer the
+ * game sent only the bank line and the retrieved line, no "Death charges you"). The game uses
+ * similar wording elsewhere ("Some of your payment has been taken from your bank." on the
+ * Grand Exchange), and that must never count as a death cost.
  *
  * All data is stored locally, one JSON file per character. Nothing is sent anywhere.
  */
@@ -153,6 +156,15 @@ public class DeathCostPlugin extends Plugin
 	 * capture both arrived in the same tick; if none comes, the bank payment is the whole fee.
 	 */
 	private static final int BANK_WAIT_TICKS = 2;
+
+	/**
+	 * How long a bank payment seen with no reclaim interface open waits for the "retrieved
+	 * everything" message that makes it a grave fee. Without that message it is dropped.
+	 */
+	private static final int RETRIEVED_WAIT_TICKS = 5;
+
+	/** Confirms a reclaim: the grave is empty. Also sent when the reclaim window was never open. */
+	private static final String RETRIEVED_ALL = "You successfully retrieved everything from your gravestone.";
 
 	/** Sacrifice credit and the removed items must arrive within this many ticks of each other. */
 	private static final int PAIR_TICKS = 1;
@@ -216,6 +228,8 @@ public class DeathCostPlugin extends Plugin
 	private long pendingBank;
 	private int pendingBankTick;
 	private String pendingBankKind;
+	/** The pending bank payment came with no reclaim interface open; it needs RETRIEVED_ALL. */
+	private boolean pendingBankUnconfirmed;
 
 	private boolean cofferOpen;
 	private int lastCofferVarp;
@@ -504,14 +518,19 @@ public class DeathCostPlugin extends Plugin
 		if (bank.matches())
 		{
 			String kind = reclaimKind();
-			if (kind == null)
-			{
-				return; // not at a gravestone or reclaim NPC: some other bank payment
-			}
 			flushBank();
 			pendingBank = parseCoins(bank.group(1));
 			pendingBankTick = client.getTickCount();
-			pendingBankKind = kind;
+			// No reclaim interface open: only a grave emptied right after makes this a fee
+			pendingBankKind = kind != null ? kind : "grave";
+			pendingBankUnconfirmed = kind == null;
+			return;
+		}
+
+		if (RETRIEVED_ALL.equals(message) && pendingBank > 0)
+		{
+			pendingBankUnconfirmed = false;
+			flushBank();
 		}
 	}
 
@@ -628,14 +647,21 @@ public class DeathCostPlugin extends Plugin
 		return null;
 	}
 
-	/** Records a bank payment that no "Death charges you" message claimed: it was the whole fee. */
+	/**
+	 * Records a bank payment that no "Death charges you" message claimed: it was the whole fee.
+	 * One seen with no reclaim interface open is dropped unless a grave was emptied after it.
+	 */
 	private void flushBank()
 	{
 		if (pendingBank > 0)
 		{
 			long coins = pendingBank;
 			pendingBank = 0;
-			recordPayment(coins, coins, "bank", pendingBankKind, -1);
+			if (!pendingBankUnconfirmed)
+			{
+				recordPayment(coins, coins, "bank", pendingBankKind, -1);
+			}
+			pendingBankUnconfirmed = false;
 		}
 	}
 
@@ -829,7 +855,7 @@ public class DeathCostPlugin extends Plugin
 	{
 		// Settle a lone bank payment; drop half of a sacrifice whose other half never came
 		int tick = client.getTickCount();
-		if (pendingBank > 0 && tick - pendingBankTick >= BANK_WAIT_TICKS)
+		if (pendingBank > 0 && tick - pendingBankTick >= (pendingBankUnconfirmed ? RETRIEVED_WAIT_TICKS : BANK_WAIT_TICKS))
 		{
 			flushBank();
 		}
@@ -989,6 +1015,7 @@ public class DeathCostPlugin extends Plugin
 		}
 		// Half-collected payments and sacrifices belong to the old data
 		pendingBank = 0;
+		pendingBankUnconfirmed = false;
 		pendingInstanceCoffer = 0;
 		pendingInstanceBank = 0;
 		instanceOffer = 0;
