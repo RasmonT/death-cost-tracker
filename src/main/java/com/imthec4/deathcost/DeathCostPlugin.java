@@ -98,8 +98,9 @@ import net.runelite.client.util.Text;
  * sends both, exactly like a grave.</li>
  * <li>Death's Office (interface DEATH_OFFICE) paid from the bank sends only
  * "Payment has been taken from your bank: 5,964 coins".</li>
- * <li>While the sacrifice interface is open, varp IF1 (261) holds the coffer balance. A
- * sacrifice raises it by the credit in the same tick the items leave the inventory.</li>
+ * <li>While the sacrifice interface is open, varp IF1 (261) holds the coffer balance; the game
+ * sets it one tick before the interface loads, so the balance is known the moment the window
+ * opens. A sacrifice raises it by the credit in the same tick the items leave the inventory.</li>
  * <li>The gravestone interface puts the coffer balance in varc 400.</li>
  * </ul>
  * Private boss instances (optional, off by default) are paid with SPAM-type messages, coffer
@@ -708,13 +709,28 @@ public class DeathCostPlugin extends Plugin
 		}
 		if (event.getGroupId() == InterfaceID.DEATH_COFFER)
 		{
-			cofferOpen = true;
-			lastCofferVarp = client.getVarpValue(VarPlayerID.IF1);
-			clearPendingSacrifice();
-			// Start from the real inventory, in case no change event has been seen yet
-			inventory.clear();
-			inventory.putAll(count(client.getItemContainer(InventoryID.INV)));
+			openCoffer();
 		}
+	}
+
+	/**
+	 * The sacrifice window is open. The game sets the coffer balance in varp IF1 one tick before
+	 * the window loads (capture 2026-10-07), so it is published here at once; before that it
+	 * only showed after the next sacrifice.
+	 */
+	private void openCoffer()
+	{
+		cofferOpen = true;
+		lastCofferVarp = client.getVarpValue(VarPlayerID.IF1);
+		if (lastCofferVarp >= 0)
+		{
+			int balance = lastCofferVarp;
+			change(d -> d.setCofferBalance(balance));
+		}
+		clearPendingSacrifice();
+		// Start from the real inventory, in case no change event has been seen yet
+		inventory.clear();
+		inventory.putAll(count(client.getItemContainer(InventoryID.INV)));
 	}
 
 	@Subscribe
@@ -735,8 +751,18 @@ public class DeathCostPlugin extends Plugin
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged event)
 	{
-		if (!cofferOpen || event.getVarbitId() != -1 || event.getVarpId() != VarPlayerID.IF1)
+		if (event.getVarbitId() != -1 || event.getVarpId() != VarPlayerID.IF1)
 		{
+			return;
+		}
+		if (!cofferOpen)
+		{
+			// The window is there but its load was not seen (plugin started with it open)
+			if (!isOpen(InterfaceID.DEATH_COFFER))
+			{
+				return;
+			}
+			openCoffer();
 			return;
 		}
 		int now = client.getVarpValue(VarPlayerID.IF1);

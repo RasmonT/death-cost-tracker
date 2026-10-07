@@ -15,7 +15,7 @@ All data stays on your computer.
 | Today | Fees paid today. The day starts at 00:00 UTC (the game's daily reset) or local midnight |
 | Total | Fees paid since the total was last reset |
 | Coffer saved | Coffer credit for sacrificed items minus what you paid for them (see *Coffer savings* below) |
-| Coffer | The last Death's Coffer balance the game showed you |
+| Coffer | The last Death's Coffer balance the game showed you: at a gravestone, or the moment the sacrifice window opens |
 
 Move it with Alt-drag. Right-click it to reset Session, Today, Total or Coffer savings; each
 reset asks for confirmation first and can post a chat message afterwards. Every line can be
