@@ -41,7 +41,8 @@ import java.util.TreeMap;
  */
 class CostData
 {
-	static final int VERSION = 1;
+	/** 1: up to 2.3.x; 2: deaths.today added (2.4). */
+	static final int VERSION = 2;
 	static final int MAX_HISTORY = 200;
 	/** Sacrifices kept one by one; older ones are folded into {@link Savings#archived}. */
 	static final int MAX_SACRIFICES = 500;
@@ -92,6 +93,8 @@ class CostData
 	{
 		/** Since login. */
 		long session;
+		/** Today, since the day started or the counter was last reset (2.4+). */
+		long today;
 		/** Since the death counter was last reset. */
 		long total;
 		String since;
@@ -214,6 +217,7 @@ class CostData
 	CostData normalize()
 	{
 		String now = now();
+		int fileVersion = version;
 		version = VERSION;
 		if (total == null)
 		{
@@ -300,6 +304,15 @@ class CostData
 		}
 		deathDays = deathDays == null ? new TreeMap<>() : new TreeMap<>(deathDays);
 		deathDays.values().removeIf(v -> v == null);
+		if (deaths.today < 0)
+		{
+			deaths.today = 0;
+		}
+		// A file from before 2.4 has no today counter: start it from today's history
+		if (fileVersion < 2 && today != null && today.date != null)
+		{
+			deaths.today = deathDays.getOrDefault(today.date, 0L);
+		}
 		return this;
 	}
 
@@ -312,6 +325,7 @@ class CostData
 		}
 		today.date = date;
 		today.coins = 0;
+		deaths.today = 0;
 		return true;
 	}
 
@@ -331,6 +345,7 @@ class CostData
 	void addDeath()
 	{
 		deaths.session++;
+		deaths.today++;
 		deaths.total++;
 		deathDays.merge(today.date, 1L, Long::sum);
 	}

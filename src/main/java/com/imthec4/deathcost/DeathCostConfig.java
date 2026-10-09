@@ -168,7 +168,7 @@ public interface DeathCostConfig extends Config
 	@ConfigItem(
 		keyName = "showDeathOverlay",
 		name = "Show deaths overlay",
-		description = "A separate box with deaths this session and all deaths",
+		description = "A separate box with your deaths: session, today and all, each with its own switch",
 		section = DEATHS,
 		position = 0
 	)
@@ -178,11 +178,47 @@ public interface DeathCostConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "deathsSession",
+		name = "Session deaths",
+		description = "Deaths since you logged in",
+		section = DEATHS,
+		position = 1
+	)
+	default boolean deathsSession()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "deathsToday",
+		name = "Today's deaths",
+		description = "Deaths today, with the day starting at the time chosen under Counting",
+		section = DEATHS,
+		position = 2
+	)
+	default boolean deathsToday()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "deathsTotal",
+		name = "All deaths",
+		description = "Deaths since the counter was last reset",
+		section = DEATHS,
+		position = 3
+	)
+	default boolean deathsTotal()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "showDeathHistory",
 		name = "Deaths in side panel",
 		description = "A table of deaths per day for the chosen date range in the side panel",
 		section = DEATHS,
-		position = 1
+		position = 4
 	)
 	default boolean showDeathHistory()
 	{

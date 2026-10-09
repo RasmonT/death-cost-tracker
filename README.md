@@ -32,9 +32,10 @@ character (after a confirmation), as if its file had never existed.
 
 ## Deaths
 
-A separate overlay counts your deaths: this session and all deaths. It has its own position
-(Alt-drag) and can be turned off in the settings. Right-click it to reset either count; all
-deaths have their own reset, independent of the cost counters. Deaths are also kept per day,
+A separate overlay counts your deaths: this session, today and all deaths, each line with its
+own switch in the settings. It has its own position (Alt-drag) and can be turned off as a
+whole. Right-click it to reset any of the three counts; they are independent of the cost
+counters, and resetting them never changes the per-day history. Deaths are also kept per day,
 so the side panel shows a second table with the deaths in the chosen date range (this table
 can be turned off as well).
 

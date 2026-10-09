@@ -69,18 +69,34 @@ class DeathCountOverlay extends OverlayPanel
 			return null;
 		}
 
+		if (!config.deathsSession() && !config.deathsToday() && !config.deathsTotal())
+		{
+			return null; // every line switched off: nothing to show
+		}
 		panelComponent.getChildren().add(LineComponent.builder()
 			.left("Deaths")
 			.leftColor(Color.ORANGE)
 			.build());
-		panelComponent.getChildren().add(LineComponent.builder()
-			.left("Session")
-			.right(String.valueOf(data.deaths.session))
-			.build());
-		panelComponent.getChildren().add(LineComponent.builder()
-			.left("All deaths")
-			.right(String.valueOf(data.deaths.total))
-			.build());
+		if (config.deathsSession())
+		{
+			line("Session", data.deaths.session);
+		}
+		if (config.deathsToday())
+		{
+			line("Today", data.deaths.today);
+		}
+		if (config.deathsTotal())
+		{
+			line("All deaths", data.deaths.total);
+		}
 		return super.render(graphics);
+	}
+
+	private void line(String name, long count)
+	{
+		panelComponent.getChildren().add(LineComponent.builder()
+			.left(name)
+			.right(String.valueOf(count))
+			.build());
 	}
 }

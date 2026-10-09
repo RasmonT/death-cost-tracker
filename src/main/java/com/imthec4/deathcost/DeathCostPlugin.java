@@ -958,6 +958,7 @@ public class DeathCostPlugin extends Plugin
 		TOTAL("Total", "total", false),
 		SAVINGS("Coffer savings", "coffer savings", false),
 		SESSION_DEATHS("Session deaths", "session deaths", true),
+		TODAY_DEATHS("Today's deaths", "today's deaths", true),
 		ALL_DEATHS("All deaths", "all deaths", true);
 
 		private final String menuTarget;
@@ -1005,6 +1006,8 @@ public class DeathCostPlugin extends Plugin
 				return d.total.coins;
 			case SESSION_DEATHS:
 				return d.deaths.session;
+			case TODAY_DEATHS:
+				return d.deaths.today;
 			case ALL_DEATHS:
 				return d.deaths.total;
 			default:
@@ -1085,6 +1088,9 @@ public class DeathCostPlugin extends Plugin
 				break;
 			case SESSION_DEATHS:
 				d.deaths.session = 0;
+				break;
+			case TODAY_DEATHS:
+				d.deaths.today = 0;
 				break;
 			case ALL_DEATHS:
 				d.deaths.total = 0;
