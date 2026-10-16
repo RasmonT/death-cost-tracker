@@ -101,6 +101,11 @@ import net.runelite.client.util.Text;
  * <li>While the sacrifice interface is open, varp IF1 (261) holds the coffer balance; the game
  * sets it one tick before the interface loads, so the balance is known the moment the window
  * opens. A sacrifice raises it by the credit in the same tick the items leave the inventory.</li>
+ * <li>The window's selection: varp IF2 (262) is the inventory slot of the chosen item, IF4 (264)
+ * the credit for one of it, IF3 (263) the amount (Integer.MAX_VALUE for All). On Confirm IF1
+ * rises first and the three reset to -1, 0, 0 in the same tick (captures 2026-10-07 and
+ * 2026-10-15, noted Necklace of Fangs with All). So the item is the one in the selected slot and
+ * the amount is the credit divided by IF4, whenever the items actually leave the inventory.</li>
  * <li>The gravestone interface puts the coffer balance in varc 400.</li>
  * </ul>
  * Private boss instances (optional, off by default) are paid with SPAM-type messages, coffer
@@ -168,7 +173,7 @@ public class DeathCostPlugin extends Plugin
 	private static final String RETRIEVED_ALL = "You successfully retrieved everything from your gravestone.";
 
 	/** Sacrifice credit and the removed items must arrive within this many ticks of each other. */
-	private static final int PAIR_TICKS = 1;
+	private static final int PAIR_TICKS = 2;
 
 	@Inject
 	private Client client;
@@ -234,6 +239,15 @@ public class DeathCostPlugin extends Plugin
 
 	private boolean cofferOpen;
 	private int lastCofferVarp;
+	/** Last value seen in varp IF1, whichever window set it; -1 before the first. */
+	private int lastIf1 = -1;
+	/** Inventory item ids by slot, as of the last change. */
+	private int[] slotIds = new int[0];
+	/** The item chosen in the coffer window (canonical id) and the credit for one of it. */
+	private int selectedItem = -1;
+	private long selectedValue;
+	/** Removals up to this tick belong to a sacrifice already recorded from the selection. */
+	private int ignoreRemovalUntil = Integer.MIN_VALUE;
 	private long pendingCredit;
 	private int pendingCreditTick;
 	private final Map<Integer, Long> pendingRemoved = new HashMap<>();
@@ -709,6 +723,7 @@ public class DeathCostPlugin extends Plugin
 		}
 		if (event.getGroupId() == InterfaceID.DEATH_COFFER)
 		{
+			clearSelection();
 			openCoffer();
 		}
 	}
@@ -729,8 +744,10 @@ public class DeathCostPlugin extends Plugin
 		}
 		clearPendingSacrifice();
 		// Start from the real inventory, in case no change event has been seen yet
+		ItemContainer container = client.getItemContainer(InventoryID.INV);
 		inventory.clear();
-		inventory.putAll(count(client.getItemContainer(InventoryID.INV)));
+		inventory.putAll(count(container));
+		slotIds = slots(container);
 	}
 
 	@Subscribe
@@ -746,15 +763,53 @@ public class DeathCostPlugin extends Plugin
 	{
 		cofferOpen = false;
 		clearPendingSacrifice();
+		clearSelection();
+	}
+
+	private void clearSelection()
+	{
+		selectedItem = -1;
+		selectedValue = 0;
+	}
+
+	/** IF2 (slot) and IF4 (credit for one) while the coffer window is open. Resets are ignored. */
+	private void onSelection(int varp, int value)
+	{
+		if (!isOpen(InterfaceID.DEATH_COFFER))
+		{
+			return;
+		}
+		if (varp == VarPlayerID.IF2 && value >= 0)
+		{
+			int id = value < slotIds.length ? slotIds[value] : -1;
+			selectedItem = id > 0 ? itemManager.canonicalize(id) : -1;
+		}
+		else if (varp == VarPlayerID.IF4 && value > 0)
+		{
+			selectedValue = value;
+		}
 	}
 
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged event)
 	{
-		if (event.getVarbitId() != -1 || event.getVarpId() != VarPlayerID.IF1)
+		if (event.getVarbitId() != -1)
 		{
 			return;
 		}
+		int varp = event.getVarpId();
+		if (varp == VarPlayerID.IF2 || varp == VarPlayerID.IF4)
+		{
+			onSelection(varp, event.getValue());
+			return;
+		}
+		if (varp != VarPlayerID.IF1)
+		{
+			return;
+		}
+		int now = client.getVarpValue(VarPlayerID.IF1);
+		int before = lastIf1;
+		lastIf1 = now;
 		if (!cofferOpen)
 		{
 			// The window is there but its load was not seen (plugin started with it open)
@@ -763,18 +818,46 @@ public class DeathCostPlugin extends Plugin
 				return;
 			}
 			openCoffer();
-			return;
+			// A sacrifice still counts if an item was chosen in the window: credit from the last IF1
+			if (before < 0 || now <= before || selectedItem < 0)
+			{
+				return;
+			}
+			lastCofferVarp = before;
 		}
-		int now = client.getVarpValue(VarPlayerID.IF1);
 		long credit = (long) now - lastCofferVarp;
 		lastCofferVarp = now;
 		change(d -> d.setCofferBalance(now));
 		if (credit > 0)
 		{
+			if (recordSelected(credit))
+			{
+				return;
+			}
 			pendingCredit = credit;
 			pendingCreditTick = client.getTickCount();
 			pairSacrifice();
 		}
+	}
+
+	/**
+	 * Records a sacrifice from the window's selection: the item in the chosen slot, as many as
+	 * the credit buys at the credit for one. False if the selection does not explain the credit;
+	 * then the removed items are paired with it as before.
+	 */
+	private boolean recordSelected(long credit)
+	{
+		if (selectedItem <= 0 || selectedValue <= 0 || credit % selectedValue != 0)
+		{
+			return false;
+		}
+		Map<Integer, Long> items = new HashMap<>();
+		items.put(selectedItem, credit / selectedValue);
+		clearSelection();
+		clearPendingSacrifice();
+		ignoreRemovalUntil = client.getTickCount() + PAIR_TICKS;
+		record(items, credit);
+		return true;
 	}
 
 	@Subscribe
@@ -785,7 +868,8 @@ public class DeathCostPlugin extends Plugin
 			return;
 		}
 		Map<Integer, Long> now = count(event.getItemContainer());
-		if (cofferOpen)
+		slotIds = slots(event.getItemContainer());
+		if (cofferOpen && client.getTickCount() > ignoreRemovalUntil)
 		{
 			Map<Integer, Long> removed = new HashMap<>();
 			for (Map.Entry<Integer, Long> e : inventory.entrySet())
@@ -806,6 +890,22 @@ public class DeathCostPlugin extends Plugin
 		}
 		inventory.clear();
 		inventory.putAll(now);
+	}
+
+	/** Item ids by inventory slot; -1 for an empty slot. */
+	private static int[] slots(@Nullable ItemContainer container)
+	{
+		if (container == null)
+		{
+			return new int[0];
+		}
+		Item[] items = container.getItems();
+		int[] ids = new int[items.length];
+		for (int i = 0; i < items.length; i++)
+		{
+			ids[i] = items[i] != null && items[i].getQuantity() > 0 ? items[i].getId() : -1;
+		}
+		return ids;
 	}
 
 	private Map<Integer, Long> count(@Nullable ItemContainer container)
@@ -835,6 +935,13 @@ public class DeathCostPlugin extends Plugin
 		long credit = pendingCredit;
 		Map<Integer, Long> items = new HashMap<>(pendingRemoved);
 		clearPendingSacrifice();
+		clearSelection();
+		record(items, credit);
+	}
+
+	/** Adds the sacrifice of {@code items} for {@code credit} in total. */
+	private void record(Map<Integer, Long> items, long credit)
+	{
 		boolean usePurchases = config.trackPurchases();
 		Map<Integer, String> names = new HashMap<>();
 		for (Integer id : items.keySet())
